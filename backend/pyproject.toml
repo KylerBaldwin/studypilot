@@ -1,0 +1,24 @@
+[project]
+name = "studypilot-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "pydantic-settings>=2.3.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth>=2.30.0",
+    "cryptography>=42.0.0",
+    "slowapi>=0.1.9",
+    "langchain>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langgraph>=0.1.0",
+    "chromadb>=0.5.0",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.3.0",
+]
+
+
+[dependency-groups]
+dev = []

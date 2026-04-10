@@ -1,0 +1,35 @@
+services:
+  frontend:
+    build: ./ui
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./ui:/app
+    environment:
+      - GOOGLE_CLIENT_ID
+      - GOOGLE_CLIENT_SECRET
+      - GOOGLE_REDIRECT_URI
+      - API_URL
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - studypilot_data:/app/data
+    environment:
+      - OPENAI_API_KEY
+      - GOOGLE_CLIENT_ID
+      - GOOGLE_CLIENT_SECRET
+      - TOKEN_ENCRYPTION_KEY
+      - CANVAS_BASE_URL
+      - FRONTEND_URL
+      - LANGCHAIN_API_KEY
+      - LANGCHAIN_PROJECT
+      - LANGCHAIN_TRACING_V2
+
+volumes:
+  studypilot_data:
