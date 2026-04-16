@@ -1,100 +1,104 @@
-"""Canvas MCP server — stdio transport. Spawn as a subprocess, pass CANVAS_TOKEN via env."""
+"""Canvas MCP server — exposes get_courses and get_assignments as MCP tools."""
 
+import asyncio
+import json
 import os
+
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp import types
+from fastmcp import FastMCP
+
+from utils import _get_current_term_id, _shape_assignment, _paginate
 
 CANVAS_TOKEN = os.environ["CANVAS_TOKEN"]
 CANVAS_BASE_URL = os.environ.get("CANVAS_BASE_URL", "https://canvas.instructure.com")
+BASE = f"{CANVAS_BASE_URL}/api/v1"
+HEADERS = {"Authorization": f"Bearer {CANVAS_TOKEN}"}
 
-server = Server("canvas")
-_client = httpx.Client(
-    base_url=f"{CANVAS_BASE_URL}/api/v1",
-    headers={"Authorization": f"Bearer {CANVAS_TOKEN}"},
-    timeout=15,
-)
+def _make_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=BASE, headers=HEADERS, timeout=15)
 
+mcp = FastMCP("canvas")
 
-def _get(path: str, params: dict | None = None) -> list | dict:
-    r = _client.get(path, params=params)
-    r.raise_for_status()
-    return r.json()
+@mcp.tool()
+async def get_courses() -> str:
+    """List the student's active enrolled courses for the current term.
 
+    Returns a JSON array with id, name, course_code, start_at, end_at.
+    """
+    async with _make_client() as client:
+        term_id = await _get_current_term_id(client)
+        params: dict = {
+            "enrollment_state": "active",
+            "enrollment_type": "student",
+            "per_page": 50,
+        }
+        if term_id:
+            params["enrollment_term_id"] = term_id
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="get_courses",
-            description="List enrolled courses with name, course code, and term.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        types.Tool(
-            name="get_assignments",
-            description="Upcoming assignments with due dates, points, and submission status.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "course_id": {"type": "string", "description": "Optional course ID filter"}
-                },
-            },
-        ),
-        types.Tool(
-            name="get_announcements",
-            description="Recent course announcements.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "course_id": {"type": "string", "description": "Optional course ID filter"}
-                },
-            },
-        ),
-        types.Tool(
-            name="get_grades",
-            description="Current grades per course.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "course_id": {"type": "string", "description": "Optional course ID filter"}
-                },
-            },
-        ),
+        courses = await _paginate(client, "/courses", params)
+
+    filtered = [
+        {
+            "id": c["id"],
+            "name": c["name"],
+            "course_code": c["course_code"],
+            "start_at": c.get("start_at"),
+            "end_at": c.get("end_at"),
+        }
+        for c in courses
+        if c.get("end_at")
     ]
+    return json.dumps(filtered, indent=2)
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    course_id = arguments.get("course_id")
+@mcp.tool()
+async def get_assignments(course_id: str | None = None) -> str:
+    """Get upcoming assignments for a course.
 
-    if name == "get_courses":
-        data = _get("/courses", {"enrollment_state": "active"})
+    Args:
+        course_id: The numeric Canvas course ID (e.g. "123456") from get_courses.
+                   NOT the course code (e.g. "MSIS-5663"). If omitted, fetches
+                   upcoming assignments across all active courses concurrently.
 
-    elif name == "get_assignments":
-        path = f"/courses/{course_id}/assignments" if course_id else "/users/self/upcoming_events"
-        data = _get(path, {"order_by": "due_at", "bucket": "upcoming"} if not course_id else {})
-
-    elif name == "get_announcements":
-        params = {"per_page": 10}
+    Returns a JSON array sorted by effective due date (due_at, then lock_at).
+    """
+    async with _make_client() as client:
         if course_id:
-            data = _get(f"/courses/{course_id}/discussion_topics", {**params, "only_announcements": True})
+            raw = await _paginate(
+                client,
+                f"/courses/{course_id}/assignments",
+                {"order_by": "due_at", "bucket": "future", "per_page": 50},
+            )
         else:
-            data = _get("/announcements", params)
+            term_id = await _get_current_term_id(client)
+            params: dict = {
+                "enrollment_state": "active",
+                "enrollment_type": "student",
+                "per_page": 50,
+            }
+            if term_id:
+                params["enrollment_term_id"] = term_id
 
-    elif name == "get_grades":
-        if course_id:
-            data = _get(f"/courses/{course_id}/enrollments", {"user_id": "self"})
-        else:
-            data = _get("/users/self/enrollments", {"type[]": "StudentEnrollment", "state[]": "active"})
+            courses = [
+                c for c in await _paginate(client, "/courses", params)
+                if c.get("end_at")
+            ]
 
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+            results = await asyncio.gather(*[
+                _paginate(
+                    client,
+                    f"/courses/{c['id']}/assignments",
+                    {"order_by": "due_at", "bucket": "future", "per_page": 50},
+                )
+                for c in courses
+            ])
+            raw = [a for course_assignments in results for a in course_assignments]
 
-    import json
-    return [types.TextContent(type="text", text=json.dumps(data, indent=2))]
+    shaped = [_shape_assignment(a) for a in raw]
+    shaped.sort(key=lambda a: (a["due_at"] or a["lock_at"] or "9999"))
+    return json.dumps(shaped, indent=2)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(server))
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    mcp.run(transport=transport, host="0.0.0.0", port=8001)

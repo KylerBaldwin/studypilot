@@ -1,10 +1,10 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
+from agents.canvas import stream_agent
 from config import settings
-from rag.demo_loader import ensure_demo_collection
-from routes import auth, chat, rag, flashcards
 
 app = FastAPI(title="StudyPilot API")
 
@@ -25,18 +25,23 @@ async def limit_upload_size(request: Request, call_next):
             return JSONResponse(status_code=413, content={"detail": "File too large"})
     return await call_next(request)
 
+class Message(BaseModel):
+    role: str
+    content: str
 
-@app.on_event("startup")
-async def startup():
-    ensure_demo_collection()
-
-
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(rag.router)
-app.include_router(flashcards.router)
+class ChatRequest(BaseModel):
+    message: str
+    history: list[Message] = []
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/chat")
+async def chat(body: ChatRequest):
+    return StreamingResponse(
+        stream_agent(body.message, [m.model_dump() for m in body.history]),
+        media_type="text/plain",
+    )

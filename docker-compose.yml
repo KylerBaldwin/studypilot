@@ -6,12 +6,23 @@ services:
     volumes:
       - ./ui:/app
     environment:
-      - GOOGLE_CLIENT_ID
-      - GOOGLE_CLIENT_SECRET
-      - GOOGLE_REDIRECT_URI
       - API_URL
+      - STREAMLIT_AUTH_GOOGLE_CLIENT_ID
+      - STREAMLIT_AUTH_GOOGLE_CLIENT_SECRET
+      - STREAMLIT_AUTH_REDIRECT_URI
+      - STREAMLIT_AUTH_COOKIE_SECRET
+      - STREAMLIT_AUTH_EXPOSE_TOKENS
+      - STREAMLIT_AUTH_SERVER_METADATA_URL
     depends_on:
       - backend
+
+  canvas-mcp:
+    build: ./mcp/canvas
+    ports:
+      - "8001:8001"
+    environment:
+      - CANVAS_TOKEN
+      - CANVAS_BASE_URL
 
   backend:
     build: ./backend
@@ -22,14 +33,14 @@ services:
       - studypilot_data:/app/data
     environment:
       - OPENAI_API_KEY
-      - GOOGLE_CLIENT_ID
-      - GOOGLE_CLIENT_SECRET
-      - TOKEN_ENCRYPTION_KEY
       - CANVAS_BASE_URL
+      - CANVAS_MCP_URL=http://canvas-mcp:8001/sse
       - FRONTEND_URL
       - LANGCHAIN_API_KEY
       - LANGCHAIN_PROJECT
       - LANGCHAIN_TRACING_V2
+    depends_on:
+      - canvas-mcp
 
 volumes:
   studypilot_data:
