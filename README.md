@@ -1,4 +1,4 @@
-# StudyPilot
+# Group 6 Agentic AI Capstone - StudyPilot
 
 An AI study assistant with Canvas LMS integration. Ask about your courses, upcoming assignments, and more.
 
