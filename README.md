@@ -2,6 +2,8 @@
 
 An AI study assistant with Canvas LMS integration. Ask about your courses, upcoming assignments, and more.
 
+**[View Demo](https://studypilot.kylerbaldwin.com/)**
+
 ## Stack
 
 - **Frontend** — Streamlit (`ui/`)
